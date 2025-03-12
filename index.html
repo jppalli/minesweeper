@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+</head>
+<body>
+    <script>
+        const ROWS = 10;
+        const COLS = 10;
+        const CELL_SIZE = 40;
+        const MINE_COUNT = 15;
+
+        const config = {
+            type: Phaser.AUTO,
+            width: COLS * CELL_SIZE,
+            height: ROWS * CELL_SIZE,
+            scene: {
+                preload: preload,
+                create: create
+            }
+        };
+
+        let grid = [];
+        let cells = [];
+        let texts = [];
+        let gameActive = true;
+
+        new Phaser.Game(config);
+
+        function preload() {}
+
+        function create() {
+            this.input.mouse.disableContextMenu();
+            initializeGrid();
+            createVisuals.call(this);
+        }
+
+        function initializeGrid() {
+            // Create empty grid
+            for (let i = 0; i < ROWS; i++) {
+                grid[i] = [];
+                for (let j = 0; j < COLS; j++) {
+                    grid[i][j] = {
+                        isMine: false,
+                        isRevealed: false,
+                        isFlagged: false,
+                        adjacentMines: 0
+                    };
+                }
+            }
+
+            // Place mines
+            let minesPlaced = 0;
+            while (minesPlaced < MINE_COUNT) {
+                let x = Math.floor(Math.random() * ROWS);
+                let y = Math.floor(Math.random() * COLS);
+                if (!grid[x][y].isMine) {
+                    grid[x][y].isMine = true;
+                    minesPlaced++;
+                }
+            }
+
+            // Calculate adjacent mines
+            for (let i = 0; i < ROWS; i++) {
+                for (let j = 0; j < COLS; j++) {
+                    if (!grid[i][j].isMine) {
+                        let count = 0;
+                        for (let di = -1; di <= 1; di++) {
+                            for (let dj = -1; dj <= 1; dj++) {
+                                if (di === 0 && dj === 0) continue;
+                                let ni = i + di;
+                                let nj = j + dj;
+                                if (ni >= 0 && ni < ROWS && nj >= 0 && nj < COLS) {
+                                    if (grid[ni][nj].isMine) count++;
+                                }
+                            }
+                        }
+                        grid[i][j].adjacentMines = count;
+                    }
+                }
+            }
+        }
+
+        function createVisuals() {
+            cells = [];
+            texts = [];
+            
+            for (let i = 0; i < ROWS; i++) {
+                cells[i] = [];
+                texts[i] = [];
+                for (let j = 0; j < COLS; j++) {
+                    const x = j * CELL_SIZE + CELL_SIZE/2;
+                    const y = i * CELL_SIZE + CELL_SIZE/2;
+                    
+                    // Create cell background
+                    const rect = this.add.rectangle(x, y, CELL_SIZE-2, CELL_SIZE-2, 0x808080)
+                        .setInteractive()
+                        .setData('pos', {i, j});
+                    
+                    // Create text
+                    const textValue = grid[i][j].isMine ? '💣' : 
+                                    grid[i][j].adjacentMines > 0 ? grid[i][j].adjacentMines : '';
+                    const text = this.add.text(x, y, textValue, {
+                        font: '20px Arial',
+                        color: '#000000'
+                    }).setOrigin(0.5).setVisible(false);
+
+                    cells[i][j] = rect;
+                    texts[i][j] = text;
+
+                    // Input handling
+                    rect.on('pointerdown', (pointer) => {
+                        if (!gameActive) return;
+                        const {i, j} = rect.getData('pos');
+                        
+                        if (pointer.button === 2) { // Right click
+                            if (!grid[i][j].isRevealed) {
+                                grid[i][j].isFlagged = !grid[i][j].isFlagged;
+                                rect.setFillStyle(grid[i][j].isFlagged ? 0x0000ff : 0x808080);
+                            }
+                        } else if (pointer.button === 0) { // Left click
+                            if (!grid[i][j].isFlagged && !grid[i][j].isRevealed) {
+                                revealCell(i, j);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        function revealCell(i, j) {
+            if (grid[i][j].isRevealed || grid[i][j].isFlagged) return;
+            
+            grid[i][j].isRevealed = true;
+            cells[i][j].setFillStyle(0xffffff);
+            
+            if (grid[i][j].isMine) {
+                gameOver.call(this);
+                return;
+            }
+
+            texts[i][j].setVisible(true);
+            
+            if (grid[i][j].adjacentMines === 0) {
+                // Flood fill
+                for (let di = -1; di <= 1; di++) {
+                    for (let dj = -1; dj <= 1; dj++) {
+                        if (di === 0 && dj === 0) continue;
+                        const ni = i + di;
+                        const nj = j + dj;
+                        if (ni >= 0 && ni < ROWS && nj >= 0 && nj < COLS) {
+                            revealCell(ni, nj);
+                        }
+                    }
+                }
+            }
+            
+            checkWin.call(this);
+        }
+
+        function gameOver() {
+            gameActive = false;
+            for (let i = 0; i < ROWS; i++) {
+                for (let j = 0; j < COLS; j++) {
+                    if (grid[i][j].isMine) {
+                        cells[i][j].setFillStyle(0xff0000);
+                        texts[i][j].setVisible(true);
+                    }
+                }
+            }
+            this.add.text(config.width/2, config.height/2, 'Game Over!', 
+                { font: '40px Arial', color: '#ff0000' }).setOrigin(0.5);
+        }
+
+        function checkWin() {
+            for (let i = 0; i < ROWS; i++) {
+                for (let j = 0; j < COLS; j++) {
+                    if (!grid[i][j].isMine && !grid[i][j].isRevealed) return;
+                }
+            }
+            gameActive = false;
+            this.add.text(config.width/2, config.height/2, 'You Win!', 
+                { font: '40px Arial', color: '#00ff00' }).setOrigin(0.5);
+        }
+    </script>
+</body>
+</html>
